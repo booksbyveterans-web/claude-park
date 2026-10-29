@@ -15,6 +15,8 @@ const IDEA_ECHO = 120
 const TEXT_FILE = /.\.(md|markdown|txt)$/i
 // Files Claude reads as instructions: parked ideas must never become one.
 const INSTRUCTION_FILES = /^(CLAUDE(\.local)?|AGENTS)\.md$/i
+// Claude also loads every .md under .claude/rules/ as instructions.
+const RULES_DIR = /[\\/]\.claude[\\/]rules[\\/]/i
 const ABSOLUTE = /^([A-Za-z]:)?[\\/]/
 const CONTROL = /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g
 
@@ -55,6 +57,9 @@ const resolveLot = (rawLot: string, scope: string, cwd: string): { path: string 
     return { error: `the parking lot file "${rawLot}" is one Claude reads as instructions; pick another name` }
   }
   if (scope === 'project') return { path: `${trimSlash(cwd)}/${name}` }
+  if (RULES_DIR.test(lot)) {
+    return { error: `the parking lot file "${rawLot}" is under .claude/rules/, which Claude reads as instructions` }
+  }
   let path = lot
   if (/^~[\\/]/.test(lot)) {
     if (home === '') return { error: `"${lot}" starts with ~ but no home folder is set (HOME or USERPROFILE)` }
@@ -125,11 +130,6 @@ export const register: Register = (on, options) => {
         return { text: `park: ${resolved.error}. Fix it under /config, park, Parking lot file. Nothing written.` }
       }
       const path = resolved.path
-      const project = basename(cwd) || cwd
-      const doing =
-        !includeLastPrompt ? '' :
-        lastPrompt === '' ? ' before any prompt this session' :
-        ` while working on "${lastPrompt}"`
 
       let existing = HEADER
       let exists = false
@@ -138,6 +138,40 @@ export const register: Register = (on, options) => {
       } catch (err) {
         return { text: `park: cannot check ${path}: ${reason(err)}. Nothing written.` }
       }
+      // A link at the path would send the entry to whatever file it points at.
+      // stat sees a link even when it leads nowhere, so it fails only when nothing
+      // is there or the OS refuses; with something there, a failure refuses (fail closed).
+      let isLink = false
+      try {
+        isLink = (await $.fs.stat(path)).isLink
+      } catch (err) {
+        if (exists) return { text: `park: cannot check whether ${path} is a link: ${reason(err)}. Nothing written.` }
+      }
+      if (isLink) {
+        if (scope === 'project') {
+          // A cloned repository could ship the lot as a link into your home folder.
+          return { text: `park: ${path} is a symbolic link. In project scope park writes only a regular file. Nothing written.` }
+        }
+        let real: string | undefined
+        try {
+          real = (await $.fs.stat(path, { resolve: true })).realPath
+        } catch (err) {
+          return { text: `park: cannot resolve the link at ${path}: ${reason(err)}. Nothing written.` }
+        }
+        if (real === undefined) return { text: `park: ${path} is a symbolic link that leads nowhere. Nothing written.` }
+        const realName = basename(real)
+        if (!TEXT_FILE.test(realName) || INSTRUCTION_FILES.test(realName) || RULES_DIR.test(real)) {
+          return { text: `park: ${path} links to ${real}, which park will not write to. Nothing written.` }
+        }
+      }
+
+      // The folder name goes inside backticks: keep it one line with none of its own.
+      const project = oneLine(basename(cwd) || cwd, IDEA_HEADING).replace(/`/g, "'")
+      const doing =
+        !includeLastPrompt ? '' :
+        lastPrompt === '' ? ' before any prompt this session' :
+        ` while working on "${lastPrompt}"`
+
       if (exists) {
         try {
           existing = await $.fs.read(path)

@@ -65,6 +65,7 @@ Set at install, and later under `/config` in the `park` rows.
 - It never edits or deletes an earlier entry. Each `/park` reads the file and writes it back whole with the new entry at the end, so keep the file somewhere synced or versioned if it matters to you.
 - Calls are queued within one session, so two quick `/park`s in the same window never lose one. Two sessions parking into the same file at the same instant can still lose one.
 - If the file cannot be read (for example it is over 4 MiB, or it holds a NUL or U+FFFD character and so is binary or not UTF-8), `/park` refuses and writes nothing rather than risk the file.
+- It never writes through a symbolic link in project scope, so a cloned repository cannot point the lot at a file in your home folder. In global scope a link you made yourself is followed, as long as it leads to a `.md`, `.markdown` or `.txt` file that is not an instruction file.
 - It sends nothing anywhere. The only side effect is one local file.
 
 ## How it works

@@ -1,6 +1,6 @@
 {
   "name": "park",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "/park <idea>: append an idea to your parking-lot file with the date, the project and what you were doing, without interrupting Claude",
   "author": {
     "name": "Phil Smith",

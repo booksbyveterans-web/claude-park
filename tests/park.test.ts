@@ -19,6 +19,9 @@ type World = {
   read: () => string
   onWrite: () => void
   env: Record<string, string>
+  cwd: string
+  stats: Record<string, { isLink: boolean; realPath?: string }>
+  statError: 'always' | 'resolve' | undefined
 }
 
 // Nothing sits beneath the plugin: these hooks stand for the engine.
@@ -26,14 +29,21 @@ type World = {
 const world = (on: On, init: Partial<World> = {}): World => {
   const w: World = {
     writes: [], checked: [], readPaths: [],
-    exists: false, read: () => '', onWrite: () => {}, env: { HOME }, ...init,
+    exists: false, read: () => '', onWrite: () => {}, env: { HOME }, cwd: CWD, stats: {}, statError: undefined, ...init,
   }
   mock.env(on, w.env)
   mock.clock(on, { now: NOW })
   on('session.start', (_, e) => ({ cwd: e.cwd }))
   on('session.end', (_, e) => ({ sessionId: e.sessionId }))
   on('command.register', () => ({ value: { command: 'park' } }))
-  on('session.cwd', () => ({ value: CWD }))
+  on('session.cwd', () => ({ value: w.cwd }))
+  // As the engine: a regular file stats as one, a missing path rejects ENOENT.
+  on('fs.stat', (_, e) => {
+    if (w.statError === 'always' || (w.statError === 'resolve' && e.resolve)) throw new Error('EACCES')
+    const s = w.stats[e.path] ?? (w.exists ? { isLink: false } : undefined)
+    if (s === undefined) throw new Error('ENOENT')
+    return { value: { kind: 'file' as const, size: 0, mtimeMs: 0, ...s } }
+  })
   on('ui.toast', () => ({ value: undefined }))
   on('prompt.submit', (_, e) => ({ text: e.text }))
   on('fs.exists', (_, e) => {
@@ -328,4 +338,91 @@ test('two /park calls in flight at once are serialised', async ($, on) => {
   expect(w.writes[1]?.text).toContain('**What:** first idea')
   expect(w.writes[1]?.text).toContain('**What:** second idea')
   expect(w.writes[1]?.text.startsWith('old\n')).toBe(true)
+})
+
+const LOT = `${HOME}/.claude/IDEA_PARKING_LOT.md`
+
+test(
+  'project scope refuses a parking lot that is a symbolic link',
+  { options: { scope: 'project' } },
+  async ($, on) => {
+    const lot = `${CWD}/IDEA_PARKING_LOT.md`
+    const w = world(on, { stats: { [lot]: { isLink: true, realPath: `${HOME}/.zshrc` } } })
+    await start($)
+    const out = await park($, 'cloned repo idea')
+
+    expect(out.text).toContain('symbolic link')
+    expect(w.writes.length).toBe(0)
+  },
+)
+
+test('global scope follows a link to another markdown file', async ($, on) => {
+  const w = world(on, { stats: { [LOT]: { isLink: true, realPath: `${HOME}/Dropbox/lot.md` } } })
+  await start($)
+  await park($, 'synced idea')
+
+  expect(w.writes[0]?.path).toBe(LOT)
+})
+
+test('global scope refuses a link to an instruction file', async ($, on) => {
+  const w = world(on, { stats: { [LOT]: { isLink: true, realPath: `${HOME}/.claude/CLAUDE.md` } } })
+  await start($)
+  const out = await park($, 'sneaky idea')
+
+  expect(out.text).toContain('will not write to')
+  expect(w.writes.length).toBe(0)
+})
+
+test('global scope refuses a link that leads nowhere', async ($, on) => {
+  const w = world(on, { stats: { [LOT]: { isLink: true } } })
+  await start($)
+  const out = await park($, 'dangling idea')
+
+  expect(out.text).toContain('leads nowhere')
+  expect(w.writes.length).toBe(0)
+})
+
+test(
+  'a parking lot under .claude/rules/ is refused',
+  { options: { parkingLot: '~/.claude/rules/ideas.md' } },
+  async ($, on) => {
+    const w = world(on)
+    await start($)
+    const out = await park($, 'rules idea')
+
+    expect(out.text).toContain('.claude/rules/')
+    expect(w.writes.length).toBe(0)
+  },
+)
+
+test('a folder name with a backtick or newline stays on one line', async ($, on) => {
+  const w = world(on, { cwd: '/work/bad`name\n## injected' })
+  await start($)
+  await park($, 'odd folder idea')
+
+  const text = w.writes[0]?.text ?? ''
+  expect(text).toContain("from `bad'name ## injected`")
+  expect(text).not.toContain('\n## injected')
+})
+
+test('a stat that fails on a file that is there refuses (fail closed)', async ($, on) => {
+  const w = world(on, { exists: true, read: () => 'old\n', statError: 'always' })
+  await start($)
+  const out = await park($, 'unchecked idea')
+
+  expect(out.text).toContain('cannot check whether')
+  expect(w.writes.length).toBe(0)
+})
+
+test('a link whose target cannot be resolved refuses', async ($, on) => {
+  const w = world(on, {
+    exists: true,
+    stats: { [LOT]: { isLink: true, realPath: `${HOME}/lot.md` } },
+    statError: 'resolve',
+  })
+  await start($)
+  const out = await park($, 'unresolved idea')
+
+  expect(out.text).toContain('cannot resolve the link')
+  expect(w.writes.length).toBe(0)
 })
