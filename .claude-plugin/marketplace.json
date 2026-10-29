@@ -1,0 +1,13 @@
+{
+  "name": "claude-park",
+  "description": "Phil Smith's Claude Code mods: park, the /park idea parking lot.",
+  "owner": { "name": "Phil Smith" },
+  "plugins": [
+    {
+      "name": "park",
+      "description": "/park <idea>: append an idea to your parking-lot file with the date, the project and what you were doing, without interrupting Claude",
+      "source": "./",
+      "category": "productivity"
+    }
+  ]
+}

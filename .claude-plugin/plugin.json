@@ -1,0 +1,42 @@
+{
+  "name": "park",
+  "version": "1.0.0",
+  "description": "/park <idea>: append an idea to your parking-lot file with the date, the project and what you were doing, without interrupting Claude",
+  "author": {
+    "name": "Phil Smith",
+    "url": "https://github.com/booksbyveterans-web"
+  },
+  "repository": "https://github.com/booksbyveterans-web/claude-park",
+  "license": "MIT",
+  "keywords": [
+    "ideas",
+    "adhd",
+    "productivity",
+    "parking-lot",
+    "mod"
+  ],
+  "userConfig": {
+    "parkingLot": {
+      "type": "string",
+      "title": "Parking lot file",
+      "description": "Markdown or text file that /park adds entries to (.md, .markdown or .txt). An absolute path, or one starting with ~/ for your home folder. Created on the first /park if it is missing.",
+      "default": "~/.claude/IDEA_PARKING_LOT.md"
+    },
+    "scope": {
+      "type": "string",
+      "title": "Scope",
+      "description": "global: always the file above. project: a file with the same name in the folder Claude is working in, so each project keeps its own lot. In project scope, gitignore it or commit it on purpose.",
+      "options": [
+        "global",
+        "project"
+      ],
+      "default": "global"
+    },
+    "includeLastPrompt": {
+      "type": "boolean",
+      "title": "Record what you were doing",
+      "description": "Add about the first 200 characters of your last typed prompt to each entry, so the idea can be picked up cold. Turn off if your prompts hold things that should not land in a file.",
+      "default": true
+    }
+  }
+}
